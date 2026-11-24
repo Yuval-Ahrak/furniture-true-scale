@@ -8,38 +8,47 @@ Status: **proposal stage**. Slides: [`slides/01_proposal.pdf`](slides/01_proposa
 ---
 
 ## 1. Motivation
-Buying furniture from a photo is a size gamble: in a 2025 survey of 1,500 UK online furniture buyers, 60% had bought an item that turned out to be the wrong size and 49% one that didn't fit through the door (Fixtuur, *Returniture*, 2025). Second-hand listings often omit dimensions, and AR "view in room" only works when the retailer supplies a true-scale 3D model. Image-insertion models can place furniture into a room photo realistically — but nothing guarantees the inserted item is the right size.
+People buying furniture online — especially second-hand — judge from photos and must imagine how the item will look in their room. In a 2025 survey of 1,500 UK online furniture buyers, 60% reported receiving an item that was the wrong size (Fixtuur, *Returniture*, Oct 2025). Image-insertion models make furniture look plausible, but nothing guarantees it is the right size. TrueScale is a decision-support preview, not a guarantee of physical fit.
 
 ## 2. Problem statement
-**Given** an RGB room photo and an RGB photo of a furniture item (optionally its listed dimensions), **generate** a photorealistic image of the room containing that item at its correct metric size, standing on the floor in the right perspective.
+**Given** a room photo, a furniture reference photo and the furniture's dimensions W×D×H, **generate** a photorealistic image with the furniture at that metric size, standing on the floor at a chosen spot, with correct perspective.
 
 | | |
 |---|---|
-| Input | room photo; furniture photo (catalog or second-hand); target floor spot; optional listed W×D×H |
-| Output | generated room image at true scale; estimated W×D×H ± interval; fit check |
-| Constraints | RGB only (no depth sensor), unknown camera, free GPUs |
+| Input | room photo · furniture photo · W×D×H · floor spot · optional one known room length (calibration) |
+| Output | room image with the item at true scale; pixels outside the mask unchanged; same item, same shape |
+| Modes | **primary:** dimensions given · **extension:** dimensions estimated from the photo, evaluated separately |
+| Assumptions | placement area visible, floor identifiable, item rests on the floor, selected categories |
 
-## 3. Visual abstract
-*To be added to `visuals/`.* Room: MoGe-2 → metric floor + camera. Furniture: SAM 2 → size (geometry + category prior, or listed dims). Generation: true-size 3D box on the floor → projected mask → SDXL inpainting + IP-Adapter + **our scale-exact LoRA** → output → re-measure item.
+**Research questions:** RQ1 — how well do existing reference-guided insertion methods keep a given metric size? RQ2 — does a mask projected from the metric 3D box improve scale fidelity? RQ3 — does LoRA fine-tuning on metric-box examples improve it further?
 
-## 4. Data (planned)
-- **Training — ARKitScenes** (real room scans with metric 3D boxes for 17 furniture categories): self-supervised pairs — project a furniture item's 3D box into a frame → mask; input = frame with region removed; reference = same item from another frame; target = original frame. ~200 scenes → 10–20K pairs, split by scene. *Check in week 7: frame resolution, license.*
-- **Size priors — ABO** (Amazon Berkeley Objects, CC BY-NC 4.0): per-category dimension distributions.
-- **Real test — collected by me:** ~20 before/after pairs (spot photographed empty, then with the real, tape-measured item) and ~30 measured items with listing-style photos. Never used for training.
+Full method, data-yield, measurement-protocol and risk details: [`docs/proposal_details.md`](docs/proposal_details.md).
 
-## 5. Models and pipeline (planned)
-| Step | Choice | Alternatives |
-|---|---|---|
-| Segmentation | SAM 2 | Grounded-SAM |
-| Room / object geometry | MoGe-2 | Depth Pro, UniDepth V2 |
-| Furniture size | geometry extents + ABO category priors; listed dims override | zero-shot VLM, trained regressor |
-| Generation | SDXL-Inpainting + IP-Adapter | FLUX.1 Fill, AnyDoor |
-| **Trained model** | **LoRA on the inpainting UNet, scale-exact ARKitScenes pairs** | SD 2 inpainting if memory-bound |
+## 3. Pipeline
+1. **Room geometry:** MoGe-2 metric point map + intrinsics → floor plane (RANSAC) → optional rescale from one known length.
+2. **Furniture:** SAM 2 cut-out (for IP-Adapter) · given W×D×H → oriented 3D box.
+3. **Placement:** box on the floor at the clicked spot → pinhole projection → 2D mask.
+4. **Generation:** SDXL-Inpainting + IP-Adapter + **our LoRA** → output image; re-measure the item as a check.
 
-## 6. Evaluation (planned)
-- Baselines: G0 cut & paste at scale · G1 Paint-by-Example · G2 AnyDoor · G3 SDXL-Inpaint + IP-Adapter without LoRA. Size: category mean, zero-shot VLM.
-- Metrics: scale fidelity (IoU of generated item with the projected box; re-measured size error), IoU / height ratio vs real "after" photos, DINO identity similarity, KID, small blind user study, size-estimate relative error.
-- Success criteria (set before results): LoRA cuts scale error vs G3 by ≥ 30% with identity similarity within 5%; end-to-end median size error ≤ 15% on real pairs; size estimate beats category mean.
+**LoRA:** input = frame with item region masked + true-size box mask + reference crop; target = original frame; loss = standard denoising MSE weighted to the mask; rank ~16 on UNet attention layers. F1 = SDXL base, F2 = SD 1.5 base.
+**Reused:** MoGe-2, SAM 2, IP-Adapter, SD models. **Mine:** placement & projection, data pipeline, LoRA training, evaluation.
+**Fallbacks:** user-entered room length · SD 1.5 if SDXL runs out of memory · baseline study stands if LoRA gives no gain.
+
+## 4. Data
+- **Training pairs, derived from real ARKitScenes scans (not rendered):** raw release has 640×480 RGB, intrinsics, per-frame poses and 3D box labels; CC BY-NC-SA 4.0. Filters: box ≥ 5% of frame, ≤ 30% occluded, reference view ≥ 30° apart and fully visible; 100 random pairs inspected by hand.
+- **Splits by room:** train ~70% (~100 rooms → ~5K pairs) · validation ~15% · internal test ~15% · real-world test separate.
+- **Real-world test (pilot):** ~20 items, tape-measured W×D×H, a reference photo of each, and before/after photos from a fixed tripod with the item's spot marked by tape. Never used for training or model selection.
+- **ABO:** only for the dimension-estimation extension (category size priors).
+
+## 5. Evaluation
+- **Main:** projected size error E = |w_gen − w_real| / w_real (and height) against the real after-photo from the same camera and spot — a proxy for physical size error; median over items.
+- Image-space silhouette IoU vs the real after-photo · mask compliance on unseen ARKitScenes rooms · MoGe-2 room-scale error with/without calibration · DINO similarity + visual check for identity.
+- **Baselines:** G0 cut & paste at scale · G1 Paint-by-Example · G2 AnyDoor · G3 SDXL-Inpaint + IP-Adapter. **Experiments:** E1 SDXL-Inpaint + rough box · E2 + IP-Adapter · E3 + projected metric mask · E4 + LoRA (F1) · E5 SD 1.5 + IP-Adapter + metric mask + LoRA (F2).
+- **Proposed targets:** median E ≤ 15% on the real-world test; ≥ 30% lower median E than the strongest off-the-shelf baseline; extension beats the category-mean baseline. Bootstrap CIs at item level.
+- **Minimum success:** working pipeline with given dimensions + quantitative baseline study; a null LoRA result is still a valid finding.
+
+## 6. Milestones
+wk 7 data access + end-to-end on 3 items · wk 8 baselines · wk 9 interim · wk 10–11 LoRA · wk 12 evaluation + buffer · wk 13 final · repo +2 weeks.
 
 ## 7. Related work
 See [`docs/related_work.md`](docs/related_work.md).

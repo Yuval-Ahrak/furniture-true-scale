@@ -36,7 +36,7 @@ Literature review for the proposal (November 2026). Grouped by approach; each en
 → *For us:* the demo stage. Our predicted metric box can supply exactly the missing scale; GOPI's projected-geometry conditioning is the template for the demo.
 
 ## 5. Data
-- **ARKitScenes** — Baruch et al., NeurIPS 2021 Datasets & Benchmarks, [arXiv:2111.08897](https://arxiv.org/abs/2111.08897). 5,047 captures of 1,661 scenes; manually labeled oriented 3D bounding boxes for 17 room-defining furniture categories. → *For us:* scale-exact self-supervised training pairs.
+- **ARKitScenes** — Baruch et al., NeurIPS 2021 Datasets & Benchmarks, [arXiv:2111.08897](https://arxiv.org/abs/2111.08897). 5,048 captures of 1,661 scenes; manually labeled oriented 3D bounding boxes for 17 room-defining furniture categories. → *For us:* scale-exact self-supervised training pairs.
 - **ABO** — Collins et al., CVPR 2022, [arXiv:2110.06199](https://arxiv.org/abs/2110.06199). 147,702 Amazon listings, 398,212 catalog images, 7,953 artist-made PBR meshes, up to 18 metadata attributes incl. dimensions; CC BY-NC 4.0.
 - **D-Extract** — Amazon Science. Extracts dimension attributes from product images via OCR — shows retailers value dimensions, but only works when numbers are printed on the image.
 
